@@ -1,0 +1,136 @@
+module safecrack_fsm (
+    input  logic        clk, //temporizador
+    input  logic        rst, //reseta dados numéricos
+    input  logic [3:0]  btn,  //botões numéricos
+    input  logic        prog_btn,  //programação da senha
+    input  logic        confirm_btn,  //conirmou o botão
+    output logic        unlocked,  //estado desbloqueado
+    output logic        led_green,  //led verde
+    output logic        led_red   //led vermelho
+);
+
+    typedef enum logic [4:0] {
+        S0  = 5'd0,  //estado inicial
+        S1  = 5'd1,  //definição primeiro dígito da senha
+        S10 = 5'd2,  //definição segundo dígito da senha
+        S11 = 5'd3,  //definição terceiro dígito da senha
+        S2  = 5'd4,  //tentativa do primeiro dígito
+        S3  = 5'd5,  //tentativa do segundo dígito
+        S4  = 5'd6,  //tentativa do terceiro dígito
+        S5  = 5'd7,  //estado de checagem de senha
+        S6  = 5'd8,  //estado desbloqueado
+        S7  = 5'd9,  //estado de erro mas com tentativas restantes
+        S8  = 5'd10, //estado de bloqueio
+        S9  = 5'd11  //estado de tempo do bloqueio(10s)
+    } state_t;
+
+    state_t state, next;
+
+    logic [3:0] senha[2:0];
+    logic [3:0] entrada[2:0];
+    logic [1:0] tentativas;
+    logic [23:0] timeout_cnt;
+
+    //Atualização do estado atual
+    always_ff @(posedge clk or posedge rst) begin
+        if (rst) //resetou
+            state <= S0;
+        else
+            state <= next;
+    end
+
+    //Mudança de próximo estado
+    always_comb begin
+        next = state;
+        case(state)
+            S0: begin
+                if (prog_btn)
+                    next = S1;
+                else if (confirm_btn)
+                    next = S2;
+            end
+
+            // Programando a senha
+            S1: if (confirm_btn) next = S10;
+            S10: if (confirm_btn) next = S11;
+            S11: if (confirm_btn) next = S0;
+
+            //Tentando destravar
+            S2: if (confirm_btn) next = S3;
+            S3: if (confirm_btn) next = S4;
+            S4: if (confirm_btn) next = S5;
+
+            //Checagem de senha
+				
+				,
+            S5: begin
+                if ((entrada[0] == senha[0]) && (entrada[1] == senha[1]) && (entrada[2] == senha[2]))
+                    next = S6; //sucesso
+                else
+                    next = (tentativas == 2) ? S8 : S7; // erro com tentativa ou bloqueio 
+            end
+
+            S7: next = S0; //nova tentativa
+            S6: next = S6; //destravado, permanece aqui
+            S8: next = S9; //bloqueou
+            S9: next = (timeout_cnt == 24'd500000000) ? S0 : S9; //espera 10s e volta
+
+            default: next = S0;
+        endcase
+    end
+
+    //Armazenamento das informações
+    always_ff @(posedge clk or posedge rst) begin
+        if (rst) begin
+            senha[0] <= 4'd1;
+            senha[1] <= 4'd2;
+            senha[2] <= 4'd3;
+            entrada[0] <= 4'd0;
+            entrada[1] <= 4'd0;
+            entrada[2] <= 4'd0;
+            tentativas <= 0;
+            timeout_cnt <= 0;
+        end else begin
+            case(state)
+                //Programando a senha
+                S1: if (confirm_btn) senha[0] <= btn;
+                S10: if (confirm_btn) senha[1] <= btn;
+                S11: if (confirm_btn) senha[2] <= btn;
+
+                //Tentativas das senhas
+                S2: if (confirm_btn) entrada[0] <= btn;
+                S3: if (confirm_btn) entrada[1] <= btn;
+                S4: if (confirm_btn) entrada[2] <= btn;
+
+                //Checando senhas e controlando tentativas
+                S5: begin
+                    if ((entrada[0] != senha[0]) || (entrada[1] != senha[1]) || (entrada[2] != senha[2]))
+                        tentativas <= tentativas + 1;
+                    else
+                        tentativas <= 0;
+                end
+
+                //Pós erro, zera para tentativas futuras
+                S7: begin
+                    entrada[0] <= 4'd0;
+                    entrada[1] <= 4'd0;
+                    entrada[2] <= 4'd0;
+                end
+
+                S8: timeout_cnt <= 0;
+
+                S9: timeout_cnt <= timeout_cnt + 1;
+
+                default: ;
+            endcase
+        end
+    end
+
+    //OUTPUTS (LEDs verdes e vermelhos)
+    always_comb begin
+        unlocked = (state == S6);
+        led_green = (state == S6 || state == S1 || state == S10 || state == S11 || state == S2 || state == S3 || state == S4);
+        led_red = (state == S7 || state == S8 || state == S9);
+    end
+
+endmodule
