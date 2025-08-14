@@ -61,8 +61,6 @@ module safecrack_fsm (
             S4: if (confirm_btn) next = S5;
 
             //Checagem de senha
-				
-				,
             S5: begin
                 if ((entrada[0] == senha[0]) && (entrada[1] == senha[1]) && (entrada[2] == senha[2]))
                     next = S6; //sucesso
